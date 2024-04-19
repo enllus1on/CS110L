@@ -4,11 +4,11 @@ use std::hash::{Hash, Hasher};
 #[allow(unused_imports)] // TODO: delete this line for Milestone 4
 use std::{fmt, fs};
 
-#[allow(unused)] // TODO: delete this line for Milestone 4
+// #[allow(unused)] // TODO: delete this line for Milestone 4
 const O_WRONLY: usize = 00000001;
-#[allow(unused)] // TODO: delete this line for Milestone 4
+// #[allow(unused)] // TODO: delete this line for Milestone 4
 const O_RDWR: usize = 00000002;
-#[allow(unused)] // TODO: delete this line for Milestone 4
+// #[allow(unused)] // TODO: delete this line for Milestone 4
 const COLORS: [&str; 6] = [
     "\x1B[38;5;9m",
     "\x1B[38;5;10m",
@@ -17,7 +17,7 @@ const COLORS: [&str; 6] = [
     "\x1B[38;5;13m",
     "\x1B[38;5;14m",
 ];
-#[allow(unused)] // TODO: delete this line for Milestone 4
+// #[allow(unused)] // TODO: delete this line for Milestone 4
 const CLEAR_COLOR: &str = "\x1B[0m";
 
 /// This enum can be used to represent whether a file is read-only, write-only, or read/write. An
@@ -68,7 +68,7 @@ impl OpenFile {
     /// * For regular files, this will simply return the supplied path.
     /// * For terminals (files starting with /dev/pts), this will return "<terminal>".
     /// * For pipes (filenames formatted like pipe:[pipenum]), this will return "<pipe #pipenum>".
-    #[allow(unused)] // TODO: delete this line for Milestone 4
+    // #[allow(unused)] // TODO: delete this line for Milestone 4
     fn path_to_name(path: &str) -> String {
         if path.starts_with("/dev/pts/") {
             String::from("<terminal>")
@@ -134,10 +134,23 @@ impl OpenFile {
     /// program and we don't need to do fine-grained error handling, so returning Option is a
     /// simple way to indicate that "hey, we weren't able to get the necessary information"
     /// without making a big deal of it.)
-    #[allow(unused)] // TODO: delete this line for Milestone 4
+    // #[allow(unused)] // TODO: delete this line for Milestone 4
     pub fn from_fd(pid: usize, fd: usize) -> Option<OpenFile> {
         // TODO: implement for Milestone 4
-        unimplemented!();
+        // unimplemented!();
+
+        let link_path = format!("/proc/{pid}/fd/{fd}");
+        let pathbuf = fs::read_link(link_path.as_str()).ok()?;
+        let name = OpenFile::path_to_name(pathbuf.to_str()?);
+
+        let fdinfo_path = format!("/proc/{pid}/fdinfo/{fd}");
+        let content = fs::read_to_string(fdinfo_path.as_str()).ok()?;
+
+        let mut line = content.lines();
+        let cursor = OpenFile::parse_cursor(line.next()?)?;
+        let access_mode = OpenFile::parse_access_mode(line.next()?)?;
+
+        Some(OpenFile { name, cursor, access_mode })
     }
 
     /// This function returns the OpenFile's name with ANSI escape codes included to colorize
