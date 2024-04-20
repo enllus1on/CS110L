@@ -15,6 +15,8 @@ fn main() {
     println!("size: {}", list.get_size());
     println!("{}", list.to_string()); // ToString impl for anything impl Display
 
+    let new = list.clone();
+    println!("{}", new);
     // If you implement iterator trait:
     //for val in &list {
     //    println!("{}", val);
