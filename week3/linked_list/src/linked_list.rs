@@ -11,6 +11,40 @@ struct Node<T> {
     next: Option<Box<Node<T>>>,
 }
 
+pub struct IntoIter<T> {
+    cur: Option<Box<Node<T>>>
+}
+
+pub struct Iter<'a, T> {
+    cur: &'a Option<Box<Node<T>>>
+}
+
+impl<'a, T: Clone> Iterator for Iter<'a, T> {
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.cur {
+            Some(node) => {
+                self.cur = &node.next;
+                Some(node.value.clone())
+            },
+            None => None
+        }
+    }
+}
+
+impl<T> Iterator for IntoIter<T> {
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.cur.take() {
+            Some(node) => {
+                self.cur = node.next;
+                Some(node.value)
+            },
+            None => None
+        }
+    }
+}
+
 impl<T> Node<T> {
     pub fn new(value: T, next: Option<Box<Node<T>>>) -> Node<T> {
         Node {value, next}
@@ -93,3 +127,39 @@ impl<T: Clone> Clone for LinkedList<T> {
     }
 }
 
+impl<T: PartialEq> PartialEq for LinkedList<T> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.size != other.size {
+            return false;
+        }
+        
+        let mut head = &self.head;
+        let mut other_head = &other.head;
+
+        while let (Some(cur), Some(other_cur)) = (head, other_head) {
+            if cur.value != other_cur.value {
+                return false;
+            }
+            head = &cur.next;
+            other_head = &other_cur.next;
+        }
+        
+        true
+    }
+}
+
+impl<T> IntoIterator for LinkedList<T> {
+    type Item = T;
+    type IntoIter = IntoIter<T>;
+    fn into_iter(mut self) -> Self::IntoIter {
+        IntoIter { cur: self.head.take() }
+    }
+}
+
+impl<'a, T: Clone> IntoIterator for &'a LinkedList<T> {
+    type IntoIter = Iter<'a, T>;
+    type Item = T;
+    fn into_iter(self) -> Self::IntoIter {
+        Iter { cur: &self.head }        
+    }
+}

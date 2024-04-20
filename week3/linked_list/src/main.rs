@@ -2,12 +2,14 @@ use linked_list::LinkedList;
 pub mod linked_list;
 
 fn main() {
-    let mut list: LinkedList<u32> = LinkedList::new();
+    let mut list: LinkedList<String> = LinkedList::new();
     assert!(list.is_empty());
     assert_eq!(list.get_size(), 0);
+
     for i in 1..12 {
-        list.push_front(i);
+        list.push_front(i.to_string());
     }
+
     println!("{}", list);
     println!("list size: {}", list.get_size());
     println!("top element: {}", list.pop_front().unwrap());
@@ -17,8 +19,22 @@ fn main() {
 
     let new = list.clone();
     println!("{}", new);
-    // If you implement iterator trait:
-    //for val in &list {
-    //    println!("{}", val);
-    //}
+
+    if new == list {
+        println!("PartialEq succ");
+    }
+    
+    println!("IntoIterator trait for list");
+    for val in list {
+        print!("{} ", val);
+    }
+    println!("");
+
+    println!("IntoIterator trait for &list");
+    for val in &new {
+        print!("{} ", val);
+
+    }
+    println!("");
+
 }
