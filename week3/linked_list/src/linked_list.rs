@@ -156,7 +156,7 @@ impl<T> IntoIterator for LinkedList<T> {
     }
 }
 
-impl<'a, T: Clone> IntoIterator for &'a LinkedList<T> {
+impl<'a, T> IntoIterator for &'a LinkedList<T> {
     type IntoIter = Iter<'a, T>;
     type Item = &'a T;
     fn into_iter(self) -> Self::IntoIter {
