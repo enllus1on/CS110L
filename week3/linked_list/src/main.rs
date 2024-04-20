@@ -5,6 +5,7 @@ fn main() {
     let mut list: LinkedList<String> = LinkedList::new();
     assert!(list.is_empty());
     assert_eq!(list.get_size(), 0);
+    
 
     for i in 1..12 {
         list.push_front(i.to_string());

@@ -19,13 +19,13 @@ pub struct Iter<'a, T> {
     cur: &'a Option<Box<Node<T>>>
 }
 
-impl<'a, T: Clone> Iterator for Iter<'a, T> {
-    type Item = T;
+impl<'a, T> Iterator for Iter<'a, T> {
+    type Item = &'a T;
     fn next(&mut self) -> Option<Self::Item> {
         match self.cur {
             Some(node) => {
                 self.cur = &node.next;
-                Some(node.value.clone())
+                Some(&node.value)
             },
             None => None
         }
@@ -158,7 +158,7 @@ impl<T> IntoIterator for LinkedList<T> {
 
 impl<'a, T: Clone> IntoIterator for &'a LinkedList<T> {
     type IntoIter = Iter<'a, T>;
-    type Item = T;
+    type Item = &'a T;
     fn into_iter(self) -> Self::IntoIter {
         Iter { cur: &self.head }        
     }
