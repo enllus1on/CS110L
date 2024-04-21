@@ -1,13 +1,17 @@
 use crate::debugger_command::DebuggerCommand;
-use crate::inferior::Inferior;
+use crate::inferior::{Inferior, Status};
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+use crate::dwarf_data::{DwarfData, Error as DwarfError};
+
 
 pub struct Debugger {
     target: String,
     history_path: String,
     readline: Editor<()>,
     inferior: Option<Inferior>,
+    debug_data: Option<DwarfData>,
+    breakpoints: Vec<usize>,
 }
 
 impl Debugger {
@@ -19,12 +23,29 @@ impl Debugger {
         let mut readline = Editor::<()>::new();
         // Attempt to load history from ~/.deet_history if it exists
         let _ = readline.load_history(&history_path);
+        // init debug info
+        let debug_data = match DwarfData::from_file(target) {
+            Ok(val) => Some(val),
+            Err(DwarfError::ErrorOpeningFile) => {
+                println!("Could not open file {}", target);
+                std::process::exit(1);
+            }
+            Err(DwarfError::DwarfFormatError(err)) => {
+                println!("Could not debugging symbols from {}: {:?}", target, err);
+                std::process::exit(1);
+            }
+        };
+
+        // for test
+        debug_data.as_ref().unwrap().print();
 
         Debugger {
             target: target.to_string(),
             history_path,
             readline,
             inferior: None,
+            debug_data,
+            breakpoints: vec![],
         }
     }
 
@@ -32,17 +53,59 @@ impl Debugger {
         loop {
             match self.get_next_command() {
                 DebuggerCommand::Run(args) => {
+                    self.kill();
+
                     if let Some(inferior) = Inferior::new(&self.target, &args) {
-                        // Create the inferior
                         self.inferior = Some(inferior);
-                        // TODO (milestone 1): make the inferior run
-                        // You may use self.inferior.as_mut().unwrap() to get a mutable reference
-                        // to the Inferior object
+
+                        if self.breakpoints.len() != 0 {
+                            for &addr in &self.breakpoints {
+                                self.set_bp(addr);
+                            }
+                        }
+
+                        self.wakeup_wait();
                     } else {
                         println!("Error starting subprocess");
                     }
-                }
+                },
+                DebuggerCommand::Continue => {
+                    if self.inferior.is_none() {
+                        println!("no child start");
+                    }
+                    else {
+                        self.wakeup_wait();
+                    }
+                },
+                DebuggerCommand::Backtrace => {
+                    if self.inferior.is_none() {
+                        println!("no child start");
+                        continue;
+                    }
+
+                    match self.inferior.as_ref().unwrap().backtrace(&self.debug_data) {
+                        Ok(_) => continue,
+                        Err(_) => println!("failed to backtrace")
+                    }
+                },
+                DebuggerCommand::Break(arg) => {
+                    if arg.starts_with("*") {
+                        if let Some(addr) = parse_addr(&arg[1..]) {
+                            self.breakpoints.push(addr);
+                            if self.inferior.is_some() {
+                                self.set_bp(addr);
+                            }
+                            println!("set {} breakpoint {:#x}", self.breakpoints.len() - 1, addr);
+                        } else {
+                            println!("set breakpoint error");
+                        }
+                    }
+                    else {
+                        println!("break syntax error");
+                    }
+                },
                 DebuggerCommand::Quit => {
+                    self.kill();
                     return;
                 }
             }
@@ -89,4 +152,66 @@ impl Debugger {
             }
         }
     }
+
+    fn wakeup_wait(&self) {
+        match self.inferior.as_ref().unwrap().wakeup_wait() {
+            Ok(status) => {
+                match status {
+                    Status::Exited(ecode) => {
+                        println!("child exited (status {})", ecode);
+                    },
+                    Status::Signaled(signal) => {
+                        println!("child signaled (sigcode: {:?})", signal);
+                    },
+                    Status::Stopped(signal, rip) => {
+                        println!("child stopped (signal: {:?})", signal);
+
+                        let debug_ref = self.debug_data.as_ref().unwrap();
+                        let line = debug_ref
+                        .get_line_from_addr(rip)
+                        .expect("failed to get line info");
+            
+                        let func = debug_ref
+                        .get_function_from_addr(rip)
+                        .expect("failed to get func info");
+            
+                        println!("{} ({}:{})", func, line.file, line.number);
+                    }
+                }
+            },
+            Err(_) => {
+                println!("Error wakeup subprocess");
+            }
+        }
+    }
+
+    fn kill(&mut self) {
+        if self.inferior.is_some() {
+            match self.inferior.as_mut().unwrap().kill() {
+                Ok(()) => println!("killed inferior (pid: {})", self.inferior.as_ref().unwrap().pid()),
+                Err(_) => println!("failed to kill child")
+            }
+        }
+    }
+
+    fn set_bp(&self, addr: usize) {
+        if let Ok(_) = self.inferior.as_ref().unwrap()
+            .write_byte(addr, 0xcc) {
+            
+        }
+        else {
+            println!("set breakpoint at: {:#x} error", addr);
+        }
+    }
+}
+
+fn parse_addr(addr: &str) -> Option<usize> {
+    let addr = if addr.to_lowercase().starts_with("0x") {
+        &addr[2..]
+    }
+    else {
+        &addr
+    };
+
+    usize::from_str_radix(addr, 16).ok()
 }
