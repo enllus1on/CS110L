@@ -122,11 +122,13 @@ impl Inferior {
         let orig_byte = (word >> 8 * byte_offset) & 0xff;
         let masked_word = word & !(0xff << 8 * byte_offset);
         let updated_word = masked_word | ((val as u64) << 8 * byte_offset);
-        ptrace::write(
-            self.pid(),
-            aligned_addr as ptrace::AddressType,
-            updated_word as *mut std::ffi::c_void,
-        )?;
+        unsafe { 
+            ptrace::write(
+                    self.pid(),
+                    aligned_addr as ptrace::AddressType,
+                    updated_word as *mut std::ffi::c_void,
+                )? 
+        };
         Ok(orig_byte as u8)
     }
 }
