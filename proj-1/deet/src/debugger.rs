@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::debugger_command::DebuggerCommand;
 use crate::inferior::{Inferior, Status};
 use rustyline::error::ReadlineError;
@@ -5,6 +7,10 @@ use rustyline::Editor;
 use rustyline::history::FileHistory;
 use crate::dwarf_data::{DwarfData, Error as DwarfError};
 
+struct BreakPoint {
+    addr: usize,
+    origin_byte: u8,
+}
 
 pub struct Debugger {
     target: String,
@@ -12,7 +18,7 @@ pub struct Debugger {
     readline: Editor<(), FileHistory>,
     inferior: Option<Inferior>,
     debug_data: Option<DwarfData>,
-    breakpoints: Vec<usize>,
+    breakpoints: HashMap<usize, BreakPoint>,
 }
 
 impl Debugger {
@@ -47,7 +53,7 @@ impl Debugger {
             readline,
             inferior: None,
             debug_data,
-            breakpoints: vec![],
+            breakpoints: HashMap::new(),
         }
     }
 
@@ -61,7 +67,7 @@ impl Debugger {
                         self.inferior = Some(inferior);
 
                         if self.breakpoints.len() != 0 {
-                            for &addr in &self.breakpoints {
+                            for addr in self.breakpoints.values() {
                                 self.set_bp(addr);
                             }
                         }
@@ -93,17 +99,33 @@ impl Debugger {
                 DebuggerCommand::Break(arg) => {
                     if arg.starts_with("*") {
                         if let Some(addr) = parse_addr(&arg[1..]) {
-                            self.breakpoints.push(addr);
                             if self.inferior.is_some() {
-                                self.set_bp(addr);
+                                if let Some(origin_byte) = self.set_bp(addr) {
+                                    let breakpoint = BreakPoint { addr, origin_byte };
+                                    match self.breakpoints.get(&addr) {
+                                        Some(_) => 
+                                    }
+                                } 
+                                else {
+                                    println!("{:#x} set breakpoint error", addr);
+                                }
                             }
-                            println!("set {} breakpoint {:#x}", self.breakpoints.len() - 1, addr);
-                        } else {
-                            println!("set breakpoint error");
+                            else {
+                                self.breakpoints.entry(addr)
+                                .or_insert(
+                                    BreakPoint {
+                                        addr,
+                                        origin_byte: 0
+                                    }
+                                );
+                            }
+                        } 
+                        else {
+                            println!("parse addr error");
                         }
                     }
                     else {
-                        println!("break syntax error");
+                        println!("break syntax error: address should start with *");
                     }
                 },
                 DebuggerCommand::Quit => {
@@ -196,13 +218,14 @@ impl Debugger {
         }
     }
 
-    fn set_bp(&self, addr: usize) {
-        if let Ok(_) = self.inferior.as_ref().unwrap()
+    fn set_bp(&self, addr: usize) -> Option<u8> {
+        if let Ok(origin_byte) = self.inferior.as_ref().unwrap()
             .write_byte(addr, 0xcc) {
-            
+            Some(origin_byte)
         }
         else {
             println!("set breakpoint at: {:#x} error", addr);
+            None
         }
     }
 }
