@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-
+use nix::sys::signal::Signal;
 use crate::debugger_command::DebuggerCommand;
 use crate::inferior::{Inferior, Status};
 use rustyline::error::ReadlineError;
@@ -66,14 +66,16 @@ impl Debugger {
                     if let Some(inferior) = Inferior::new(&self.target, &args) {
                         self.inferior = Some(inferior);
 
+                        // set breakpoints 
                         if self.breakpoints.len() != 0 {
-                            for addr in self.breakpoints.values() {
+                            for &addr in self.breakpoints.keys() {
                                 self.set_bp(addr);
                             }
                         }
 
                         self.wakeup_wait();
-                    } else {
+                    } 
+                    else {
                         println!("Error starting subprocess");
                     }
                 },
@@ -100,14 +102,17 @@ impl Debugger {
                     if arg.starts_with("*") {
                         if let Some(addr) = parse_addr(&arg[1..]) {
                             if self.inferior.is_some() {
-                                if let Some(origin_byte) = self.set_bp(addr) {
-                                    let breakpoint = BreakPoint { addr, origin_byte };
-                                    match self.breakpoints.get(&addr) {
-                                        Some(_) => 
-                                    }
-                                } 
+                                if self.breakpoints.contains_key(&addr) {
+                                    println!("{:#x} has already been set", addr);
+                                }
                                 else {
-                                    println!("{:#x} set breakpoint error", addr);
+                                    if let Some(origin_byte) = self.set_bp(addr) {
+                                        let bp = BreakPoint { addr, origin_byte };
+                                        self.breakpoints.insert(addr, bp);
+                                    }
+                                    else {
+                                        println!("set breakpoint at: {:#x} error", addr);
+                                    }
                                 }
                             }
                             else {
@@ -189,7 +194,7 @@ impl Debugger {
                     },
                     Status::Stopped(signal, rip) => {
                         println!("child stopped (signal: {:?})", signal);
-
+                        // print debug info 
                         let debug_ref = self.debug_data.as_ref().unwrap();
                         let line = debug_ref
                         .get_line_from_addr(rip)
@@ -200,11 +205,20 @@ impl Debugger {
                         .expect("failed to get func info");
             
                         println!("{} ({}:{})", func, line.file, line.number);
+                        // restore bp
+                        if signal == Signal::SIGTRAP {
+                            if let Some(bp) = self.breakpoints.get(&(rip - 1)) {
+                                let inferior = self.inferior.as_ref().unwrap();
+                                inferior.write_byte(bp.addr, bp.origin_byte);
+                                
+                            }
+                        }
+                    
                     }
                 }
             },
             Err(_) => {
-                println!("Error wakeup subprocess");
+                panic!("Error wakeup subprocess");
             }
         }
     }

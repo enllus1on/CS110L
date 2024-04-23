@@ -131,6 +131,10 @@ impl Inferior {
         };
         Ok(orig_byte as u8)
     }
+
+    pub fn step(&self) {
+        ptrace::step(self.pid(), signal::Signal::SIGTRAP);
+    }
 }
 
 fn align_addr_to_word(addr: usize) -> usize {
