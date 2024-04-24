@@ -2,6 +2,7 @@ use nix::sys::ptrace;
 use nix::sys::signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
+use std::collections::HashMap;
 use std::process::Child;
 use std::mem::size_of;
 use crate::dwarf_data::DwarfData;
@@ -76,9 +77,26 @@ impl Inferior {
         })
     }
 
-    pub fn wakeup_wait(&self) -> Result<Status, nix::Error> {
+    pub fn wakeup_wait(&self, bp: &HashMap<usize, crate::debugger::BreakPoint>) -> Result<Status, nix::Error> {
+        let mut regs = ptrace::getregs(self.pid())?;
+        let rip = regs.rip as usize;
+
+        // for SIGTRAP (breakpoint)
+        if let Some(bp) = bp.get(&(rip - 1)) {
+            if let Ok(_) = self.write_byte(rip - 1, bp.origin_byte) {
+                regs.rip = (rip - 1) as u64;
+                ptrace::setregs(self.pid(), regs)?;
+                ptrace::step(self.pid(), None)?;
+
+                match self.wait(None)? {
+                    Status::Exited(ecode) => return Ok(Status::Exited(ecode)),
+                    Status::Signaled(signal) => return Ok(Status::Signaled(signal)),
+                    Status::Stopped(_, _) => { self.write_byte(rip - 1, 0xcc).unwrap(); }
+                }
+            }
+        }
+
         ptrace::cont(self.pid(), None)?;
-        
         self.wait(None)
     }
 
@@ -132,9 +150,6 @@ impl Inferior {
         Ok(orig_byte as u8)
     }
 
-    pub fn step(&self) {
-        ptrace::step(self.pid(), signal::Signal::SIGTRAP);
-    }
 }
 
 fn align_addr_to_word(addr: usize) -> usize {

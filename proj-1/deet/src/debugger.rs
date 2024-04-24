@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use nix::sys::signal::Signal;
 use crate::debugger_command::DebuggerCommand;
 use crate::inferior::{Inferior, Status};
 use rustyline::error::ReadlineError;
@@ -7,9 +6,9 @@ use rustyline::Editor;
 use rustyline::history::FileHistory;
 use crate::dwarf_data::{DwarfData, Error as DwarfError};
 
-struct BreakPoint {
-    addr: usize,
-    origin_byte: u8,
+pub struct BreakPoint {
+    pub addr: usize,
+    pub origin_byte: u8,
 }
 
 pub struct Debugger {
@@ -64,15 +63,20 @@ impl Debugger {
                     self.kill();
 
                     if let Some(inferior) = Inferior::new(&self.target, &args) {
+                        // update breakpoints 
+                        self.breakpoints
+                            .values_mut()
+                            .filter(|bp| bp.origin_byte == 0)
+                            .for_each(|bp| {
+                                if let Ok(origin_byte) = inferior.write_byte(bp.addr, 0xcc) {
+                                    bp.origin_byte = origin_byte;
+                                }
+                                else {
+                                    println!("write byte: {:#x} error", 0xcc)
+                                }
+                            });
+
                         self.inferior = Some(inferior);
-
-                        // set breakpoints 
-                        if self.breakpoints.len() != 0 {
-                            for &addr in self.breakpoints.keys() {
-                                self.set_bp(addr);
-                            }
-                        }
-
                         self.wakeup_wait();
                     } 
                     else {
@@ -101,36 +105,34 @@ impl Debugger {
                 DebuggerCommand::Break(arg) => {
                     if arg.starts_with("*") {
                         if let Some(addr) = parse_addr(&arg[1..]) {
-                            if self.inferior.is_some() {
-                                if self.breakpoints.contains_key(&addr) {
-                                    println!("{:#x} has already been set", addr);
-                                }
-                                else {
-                                    if let Some(origin_byte) = self.set_bp(addr) {
-                                        let bp = BreakPoint { addr, origin_byte };
-                                        self.breakpoints.insert(addr, bp);
-                                    }
-                                    else {
-                                        println!("set breakpoint at: {:#x} error", addr);
-                                    }
-                                }
-                            }
-                            else {
-                                self.breakpoints.entry(addr)
-                                .or_insert(
-                                    BreakPoint {
-                                        addr,
-                                        origin_byte: 0
-                                    }
-                                );
-                            }
+                            self.set_bp(addr);
                         } 
                         else {
                             println!("parse addr error");
                         }
                     }
                     else {
-                        println!("break syntax error: address should start with *");
+                        if let Some(dbg_data) = self.debug_data.as_ref() {
+                            let source_file = self.target.to_owned() + ".c";
+                            if let Ok(line) =  arg.parse::<usize>() {
+                                if let Some(addr) = dbg_data
+                                .get_addr_for_line(Some(&source_file), line) {
+                                    self.set_bp(addr);
+                                }
+                                else {
+                                    println!("get addr for line error");
+                                }
+                            }
+                            else {
+                                if let Some(addr) = dbg_data
+                                .get_addr_for_function(Some(&source_file), &arg) {
+                                    self.set_bp(addr);
+                                }
+                                else {
+                                    println!("get addr for function");
+                                }
+                            }
+                        }
                     }
                 },
                 DebuggerCommand::Quit => {
@@ -183,7 +185,7 @@ impl Debugger {
     }
 
     fn wakeup_wait(&self) {
-        match self.inferior.as_ref().unwrap().wakeup_wait() {
+        match self.inferior.as_ref().unwrap().wakeup_wait(&self.breakpoints) {
             Ok(status) => {
                 match status {
                     Status::Exited(ecode) => {
@@ -205,15 +207,6 @@ impl Debugger {
                         .expect("failed to get func info");
             
                         println!("{} ({}:{})", func, line.file, line.number);
-                        // restore bp
-                        if signal == Signal::SIGTRAP {
-                            if let Some(bp) = self.breakpoints.get(&(rip - 1)) {
-                                let inferior = self.inferior.as_ref().unwrap();
-                                inferior.write_byte(bp.addr, bp.origin_byte);
-                                
-                            }
-                        }
-                    
                     }
                 }
             },
@@ -232,15 +225,33 @@ impl Debugger {
         }
     }
 
-    fn set_bp(&self, addr: usize) -> Option<u8> {
-        if let Ok(origin_byte) = self.inferior.as_ref().unwrap()
-            .write_byte(addr, 0xcc) {
-            Some(origin_byte)
+    fn set_bp(&mut self, addr: usize) {
+        if self.inferior.is_some() {
+            if self.breakpoints.contains_key(&addr) {
+                println!("{:#x} has already been set", addr);
+            }
+            else {
+                if let Ok(origin_byte) = self.inferior.as_ref().unwrap()
+                    .write_byte(addr, 0xcc) {
+                    let bp = BreakPoint { addr, origin_byte };
+                    self.breakpoints.insert(addr, bp);
+                }
+                else {
+                    println!("set breakpoint at: {:#x} error", addr);
+                }
+            }
         }
         else {
-            println!("set breakpoint at: {:#x} error", addr);
-            None
+            self.breakpoints.entry(addr)
+            .or_insert(
+                BreakPoint {
+                    addr,
+                    origin_byte: 0
+                }
+            );
         }
+
+        println!("set breakpoint {} at {:#x}", self.breakpoints.len() - 1, addr);
     }
 }
 
